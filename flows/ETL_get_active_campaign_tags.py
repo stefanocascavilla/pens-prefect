@@ -28,7 +28,7 @@ def extract_active_campaign_tags() -> list[tuple]:
             url=f'{tags_url}?limit=100&offset={offset}',
             headers={
                 'Accept': 'application/json',
-                'Api-Token': ac_token
+                'Api-Token': ac_token.get()
             }
         )
         if ac_response.status_code != 200:
