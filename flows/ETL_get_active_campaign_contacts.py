@@ -29,9 +29,9 @@ def extract_active_campaign_contacts() -> list[dict]:
     contact_list = []
     offset = 0
     while True:
-        print(f'Iteration: {offset / 1000}')
+        print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{contacts_url}?limit=1000&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
+            url=f'{contacts_url}?limit=100&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
@@ -41,8 +41,6 @@ def extract_active_campaign_contacts() -> list[dict]:
             raise Exception(f'Error while performing Call to AC - Contacts: {ac_response.status_code}')
 
         ac_response = json.loads(ac_response.text)
-        print(f'Len of AC response: {len(ac_response["contacts"])}')
-
         if len(ac_response['contacts']) > 0:
             tmp_list = [
                 {
@@ -55,13 +53,11 @@ def extract_active_campaign_contacts() -> list[dict]:
                 for single_contact in ac_response['contacts']
             ]
             contact_list.extend(tmp_list)
-
-            print(f'Current len of contact_list: {len(contact_list)}')
         else:
             break
         
-        offset += 1000
-        sleep(0.5)
+        offset += 100
+        sleep(0.3)
     
     print(f'Successfully extracted {len(contact_list)} Contacts from AC')
     return contact_list
