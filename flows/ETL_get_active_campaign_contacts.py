@@ -41,6 +41,8 @@ def extract_active_campaign_contacts() -> list[dict]:
             raise Exception(f'Error while performing Call to AC - Contacts: {ac_response.status_code}')
 
         ac_response = json.loads(ac_response.text)
+        print(f'Len of AC response: {len(ac_response['contacts'])}')
+
         if len(ac_response['contacts']) > 0:
             tmp_list = [
                 {
@@ -53,6 +55,8 @@ def extract_active_campaign_contacts() -> list[dict]:
                 for single_contact in ac_response['contacts']
             ]
             contact_list.extend(tmp_list)
+
+            print(f'Current len of contact_list: {len(contact_list)}')
         else:
             break
         
