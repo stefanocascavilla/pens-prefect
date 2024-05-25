@@ -1,6 +1,8 @@
 import requests
 import json
 
+from time import sleep
+
 from prefect import flow, task, runtime
 from prefect.blocks.system import Secret
 
@@ -27,9 +29,9 @@ def extract_active_campaign_contacts() -> list[dict]:
     contact_list = []
     offset = 0
     while True:
-        print(f'Iteration: {offset / 100}')
+        print(f'Iteration: {offset / 1000}')
         ac_response = requests.get(
-            url=f'{contacts_url}?limit=500&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
+            url=f'{contacts_url}?limit=1000&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
@@ -54,9 +56,10 @@ def extract_active_campaign_contacts() -> list[dict]:
         else:
             break
         
-        offset += 500
+        offset += 1000
+        sleep(0.5)
     
-    print(f'Successfully extracted {len(contact_list)} Tags from AC')
+    print(f'Successfully extracted {len(contact_list)} Contacts from AC')
     return contact_list
 
 
