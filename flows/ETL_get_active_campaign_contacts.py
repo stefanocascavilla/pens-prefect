@@ -171,9 +171,7 @@ def get_active_campaign_contacts():
     contacts_list = extract_active_campaign_contacts()
 
     # Retrieve Custom Fields information
-    custom_fields = extract_active_campaign_custom_fields(
-        wait_for=contacts_list
-    )
+    custom_fields = extract_active_campaign_custom_fields()
 
     # Enrich Contacts info
     enriched_contacts_list = enrich_contact.map(
