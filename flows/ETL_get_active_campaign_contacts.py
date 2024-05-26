@@ -18,9 +18,10 @@ ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
 )
 def extract_active_campaign_contacts() -> list[dict]:
     ac_token = Secret.load("active-campaign-token")
-    yesterday = runtime.flow_run.scheduled_start_time.subtract(days=1)
+    current_date = runtime.flow_run.scheduled_start_time
+    current_date_2days_sub = current_date.subtract(days=2)
 
-    print(f'Extracting Contacts from Active Campaign - {yesterday}...')
+    print(f'Extracting Contacts from Active Campaign > {current_date_2days_sub} and < {current_date}...')
     contacts_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts'
 
     contact_list = []
@@ -28,7 +29,7 @@ def extract_active_campaign_contacts() -> list[dict]:
     while True:
         print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{contacts_url}?limit=100&offset={offset}&filters[created_date]={yesterday.strftime("%Y-%m-%d")}',
+            url=f'{contacts_url}?limit=100&offset={offset}&filters[created_before]={current_date.strftime("%Y-%m-%d")}&filters[created_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
