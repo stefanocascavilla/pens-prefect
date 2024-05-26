@@ -5,6 +5,7 @@ from time import sleep
 
 from prefect import flow, task, runtime, unmapped
 from prefect.blocks.system import Secret
+from prefect.tasks.control_flow import ResourceManager
 
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
@@ -109,7 +110,7 @@ def enrich_contact(contact_info: dict, utm_fields: dict) -> dict:
         raise Exception(f'Error while performing Call to AC - Contacts Tags: {ac_response.status_code}')
     ac_contact_tags = json.loads(ac_response.text)
 
-    if ac_contact_tags['contactTags'] > 0:
+    if len(ac_contact_tags['contactTags']) > 0:
         # Checking for tags to get source
         tags_list_ids = [single_tag['tag'] for single_tag in ac_contact_tags['contactTags']]
         
@@ -137,7 +138,7 @@ def enrich_contact(contact_info: dict, utm_fields: dict) -> dict:
         raise Exception(f'Error while performing Call to AC - Contacts Custom Fields: {ac_response.status_code}')
     ac_contact_custom_fields = json.loads(ac_response.text)
 
-    if ac_contact_custom_fields['fieldValues'] > 0:
+    if len(ac_contact_custom_fields['fieldValues']) > 0:
         contact_custom_fields_utm = {
             utm_fields[single_custom_field['field']]: single_custom_field['value']
             for single_custom_field in ac_contact_custom_fields['fieldValues']
@@ -174,8 +175,9 @@ def get_active_campaign_contacts():
     custom_fields = extract_active_campaign_custom_fields()
 
     # Enrich Contacts info
-    enriched_contacts_list = enrich_contact.map(
-        contact_info=contacts_list,
-        utm_fields=unmapped(custom_fields),
-        wait_for=custom_fields
-    )
+    with ResourceManager("sequential_resource", max_concurrency=1):
+        enriched_contacts_list = enrich_contact.map(
+            contact_info=contacts_list,
+            utm_fields=unmapped(custom_fields),
+            wait_for=custom_fields
+        )
