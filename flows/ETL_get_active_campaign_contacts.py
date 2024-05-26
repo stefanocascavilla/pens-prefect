@@ -5,7 +5,6 @@ from time import sleep
 
 from prefect import flow, task, runtime, unmapped
 from prefect.blocks.system import Secret
-from prefect.tasks.control_flow import ResourceManager
 
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
@@ -175,9 +174,8 @@ def get_active_campaign_contacts():
     custom_fields = extract_active_campaign_custom_fields()
 
     # Enrich Contacts info
-    with ResourceManager("sequential_resource", max_concurrency=1):
-        enriched_contacts_list = enrich_contact.map(
-            contact_info=contacts_list,
-            utm_fields=unmapped(custom_fields),
-            wait_for=custom_fields
-        )
+    enriched_contacts_list = enrich_contact.map(
+        contact_info=contacts_list,
+        utm_fields=unmapped(custom_fields),
+        wait_for=custom_fields
+    )
