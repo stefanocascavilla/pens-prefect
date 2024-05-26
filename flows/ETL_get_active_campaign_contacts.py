@@ -18,8 +18,7 @@ ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
 )
 def extract_active_campaign_contacts() -> list[dict]:
     ac_token = Secret.load("active-campaign-token")
-    current_date = runtime.flow_run.scheduled_start_time
-    current_date_2days_sub = current_date.subtract(days=2)
+    yesterday = runtime.flow_run.scheduled_start_time.subtract(days=1)
 
     print('Extracting Contacts from Active Campaign...')
     contacts_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts'
@@ -29,7 +28,7 @@ def extract_active_campaign_contacts() -> list[dict]:
     while True:
         print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{contacts_url}?limit=100&offset={offset}&filters[created_before]={current_date.strftime("%Y-%m-%d")}&filters[created_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
+            url=f'{contacts_url}?limit=100&offset={offset}&filters[created_date]={yesterday.strftime("%Y-%m-%d")}',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
@@ -114,12 +113,12 @@ def enrich_contact(contact_info: dict, utm_fields: dict) -> dict:
         tags_list_ids = [single_tag['tag'] for single_tag in ac_contact_tags['contactTags']]
         
         # Is contact coming from Google?
-        if 6 in tags_list_ids:
+        if "6" in tags_list_ids:
             contact_info['source'] = 'google'
             print(contact_info)
             return contact_info
         # Is contact coming from Google?
-        elif 5 in tags_list_ids:
+        elif "5" in tags_list_ids:
             contact_info['source'] = 'youtube'
             print(contact_info)
             return contact_info
