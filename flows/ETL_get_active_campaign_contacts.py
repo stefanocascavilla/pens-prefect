@@ -20,7 +20,7 @@ def extract_active_campaign_contacts() -> list[dict]:
     ac_token = Secret.load("active-campaign-token")
     yesterday = runtime.flow_run.scheduled_start_time.subtract(days=1)
 
-    print('Extracting Contacts from Active Campaign...')
+    print(f'Extracting Contacts from Active Campaign - {yesterday}...')
     contacts_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts'
 
     contact_list = []
