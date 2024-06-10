@@ -219,7 +219,7 @@ def get_active_campaign_contacts():
 
     # Enrich Contacts info
     enriched_contacts_list = enrich_contact(
-        contact_info=contacts_list,
+        ac_contacts=contacts_list,
         utm_fields=custom_fields,
         wait_for=custom_fields
     )
