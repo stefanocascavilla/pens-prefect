@@ -191,8 +191,7 @@ def write_into_staging_db_areaa(ac_contacts_list: list[dict]) -> None:
     # Establish a connection to the DB
     print('Establish a connection to the DB')
     database_block = DatabaseCredentials.load('miapensione-db')
-    connection_url = f'postgresql://{database_block.username}:{database_block.password}@{database_block.host}:{database_block.port}/{database_block.database}'
-    engine = create_engine(connection_url)
+    engine = database_block.get_engine()
 
     print('Inserting the records...')
     with engine.connect() as conn:
