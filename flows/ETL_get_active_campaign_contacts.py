@@ -6,8 +6,16 @@ from time import sleep
 from prefect import flow, task, runtime, unmapped
 from prefect.blocks.system import Secret
 
+from prefect_sqlalchemy import DatabaseCredentials
+from sqlalchemy import create_engine, text
+
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
+
+AC_INSERT_QUERY = """
+    INSERT INTO staging.stg_ac_contacts (id, first_name, last_name, create_date, update_date, source, source_campaign, source_adset, source_ads)
+    VALUES (:id, :first_name, :last_name, :create_date, :update_date, :source, :source_campaign, :source_adset, :source_ads)
+"""
 
 
 @task(
@@ -60,7 +68,12 @@ def extract_active_campaign_contacts() -> list[dict]:
     print(f'Successfully extracted {len(contact_list)} Contacts from AC')
     return contact_list
 
-@task()
+@task(
+    name='extract_active_campaign_custom_fields',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
 def extract_active_campaign_custom_fields() -> dict:
     ac_token = Secret.load("active-campaign-token")
     custom_fields_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/fields'
@@ -96,6 +109,12 @@ def enrich_contact(contact_info: dict, utm_fields: dict) -> dict:
     contact_tags_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts/{contact_info["id"]}/contactTags'
     contact_custom_fields_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts/{contact_info["id"]}?include=fieldValues'
 
+    # Defining base fields (SQL constraints)
+    contact_info['source'] = None
+    contact_info['source_campaign'] = None
+    contact_info['source_adset'] = None
+    contact_info['source_ads'] = None
+
     # Getting Contact's tags
     print(f'Retrieving the tags for customer - {contact_info["id"]}')
     ac_response = requests.get(
@@ -116,12 +135,10 @@ def enrich_contact(contact_info: dict, utm_fields: dict) -> dict:
         # Is contact coming from Google?
         if "6" in tags_list_ids:
             contact_info['source'] = 'google'
-            print(contact_info)
             return contact_info
         # Is contact coming from Google?
         elif "5" in tags_list_ids:
             contact_info['source'] = 'youtube'
-            print(contact_info)
             return contact_info
     
     # Get Contact's custom fields (focus on UTM)
@@ -160,6 +177,29 @@ def enrich_contact(contact_info: dict, utm_fields: dict) -> dict:
     print(contact_info)
     return contact_info
 
+@task(
+    name='write_into_staging_db_area',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
+def write_into_staging_db_areaa(ac_contacts_list: list[dict]) -> None:
+    # Establish a connection to the DB
+    print('Establish a connection to the DB')
+    database_block = DatabaseCredentials.load('miapensione-db')
+    db_url = database_block.get_connection_url()
+    engine = create_engine(db_url)
+
+    print('Inserting the records...')
+    with engine.connect() as conn:
+        with conn.begin():
+            conn.execute(
+                text(AC_INSERT_QUERY),
+                ac_contacts_list
+            )
+    
+    print('Successfully written data into DB')
+
 
 @flow(
     name='get_active_campaign_contacts',
@@ -178,4 +218,9 @@ def get_active_campaign_contacts():
         contact_info=contacts_list,
         utm_fields=unmapped(custom_fields),
         wait_for=custom_fields
+    )
+
+    # Write AC data into DB
+    write_to_db = write_into_staging_db_areaa(
+        ac_contacts_list=enriched_contacts_list
     )

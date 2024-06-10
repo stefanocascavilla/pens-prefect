@@ -1,2 +1,4 @@
 prefect==2.17.1
 requests==2.31.0
+prefect-sqlalchemy==0.4.3
+SQLAlchemy==2.0.30
