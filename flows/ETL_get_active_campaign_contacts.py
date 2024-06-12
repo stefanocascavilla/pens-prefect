@@ -189,6 +189,10 @@ def enrich_contact(ac_contacts: list[dict], utm_fields: dict) -> dict:
     log_prints=True
 )
 def write_into_staging_db_areaa(ac_contacts_list: list[dict]) -> None:
+    if len(ac_contacts_list) == 0:
+        # No data to write, skip
+        return
+
     # Establish a connection to the DB
     print('Establish a connection to the DB')
     database_block = DatabaseCredentials.load('miapensione-db')
