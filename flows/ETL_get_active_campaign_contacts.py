@@ -3,11 +3,11 @@ import json
 
 from time import sleep
 
-from prefect import flow, task, runtime, unmapped
+from prefect import flow, task, runtime
 from prefect.blocks.system import Secret
 
 from prefect_sqlalchemy import DatabaseCredentials
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
@@ -15,6 +15,7 @@ ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
 AC_INSERT_QUERY = """
     INSERT INTO staging.stg_ac_contacts (id, first_name, last_name, create_date, update_date, source, source_campaign, source_adset, source_ads)
     VALUES (:id, :first_name, :last_name, :create_date, :update_date, :source, :source_campaign, :source_adset, :source_ads)
+    ON CONFLICT DO NOTHING
 """
 
 
@@ -66,7 +67,7 @@ def extract_active_campaign_contacts() -> list[dict]:
         sleep(0.5)
     
     print(f'Successfully extracted {len(contact_list)} Contacts from AC')
-    return contact_list[:10]
+    return contact_list
 
 @task(
     name='extract_active_campaign_custom_fields',
