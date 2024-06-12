@@ -20,7 +20,7 @@ AC_INSERT_APPOINTMENT_DEALS_QUERY = """
 """
 AC_INSERT_CLOSED_DEALS_QUERY = """
     INSERT INTO staging.stg_ac_deals_closed (id, contact, value, ts)
-    VALUES (:id, :contact, :ts)
+    VALUES (:id, :contact, :value, :ts)
     ON CONFLICT DO NOTHING
 """
 
