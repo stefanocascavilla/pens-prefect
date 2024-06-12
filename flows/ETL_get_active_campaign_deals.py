@@ -110,7 +110,7 @@ def extract_active_campaign_deals_closed() -> list[dict]:
                     'value': float(single_deal['value']) / 100,
                     'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc)
                 }
-                for single_deal in ac_response['deals']
+                for single_deal in ac_response['deals'] if single_deal['edate'] is None
             ]
             deal_list.extend(tmp_list)
         else:
