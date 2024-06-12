@@ -132,6 +132,10 @@ def write_into_staging_db_area_deals(
     ac_deals_list: list[dict],
     query: str
 ) -> None:
+    if len(ac_deals_list) == 0:
+        # No data to write, skip
+        return
+
     # Establish a connection to the DB
     print('Establish a connection to the DB')
     database_block = DatabaseCredentials.load('miapensione-db')
@@ -158,14 +162,12 @@ def get_active_campaign_deals():
     appointment_deals = extract_active_campaign_deals_appointment()
     write_appointment_deals = write_into_staging_db_area_deals(
         ac_deals_list=appointment_deals,
-        query=AC_INSERT_APPOINTMENT_DEALS_QUERY,
-        wait_for=appointment_deals
+        query=AC_INSERT_APPOINTMENT_DEALS_QUERY
     )
 
     # Retrieve raw Appointment Closed from AC
     closed_deals = extract_active_campaign_deals_closed()
     write_closed_deals = write_into_staging_db_area_deals(
         ac_deals_list=closed_deals,
-        query=AC_INSERT_CLOSED_DEALS_QUERY,
-        wait_for=closed_deals
+        query=AC_INSERT_CLOSED_DEALS_QUERY
     )
