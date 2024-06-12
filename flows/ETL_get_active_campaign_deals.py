@@ -58,7 +58,7 @@ def extract_active_campaign_deals_appointment() -> list[dict]:
             tmp_list = [
                 {
                     'id': int(single_deal['id']),
-                    'contact_id': int(single_deal['contact']),
+                    'contact': int(single_deal['contact']),
                     'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc)
                 }
                 for single_deal in ac_response['deals']
@@ -106,7 +106,7 @@ def extract_active_campaign_deals_closed() -> list[dict]:
             tmp_list = [
                 {
                     'id': int(single_deal['id']),
-                    'contact_id': int(single_deal['contact']),
+                    'contact': int(single_deal['contact']),
                     'value': float(single_deal['value']) / 100,
                     'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc)
                 }
