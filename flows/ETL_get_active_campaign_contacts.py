@@ -1,6 +1,7 @@
 import requests
 import json
 
+from datetime import datetime
 from time import sleep
 
 from prefect import flow, task, runtime
@@ -38,7 +39,7 @@ def extract_active_campaign_contacts() -> list[dict]:
     while True:
         print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{contacts_url}?limit=100&offset={offset}&filters[created_before]={current_date.strftime("%Y-%m-%d")}&filters[created_after]={current_date_2days_sub.strftime("%Y-%m-%d")}',
+            url=f'{contacts_url}?limit=100&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}&include=fieldValues,contactTags',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
@@ -48,18 +49,29 @@ def extract_active_campaign_contacts() -> list[dict]:
             raise Exception(f'Error while performing Call to AC - Contacts: {ac_response.status_code}')
 
         ac_response = json.loads(ac_response.text)
+
         if len(ac_response['contacts']) > 0:
-            tmp_list = [
-                {
+            for single_contact in ac_response['contacts']:
+                tmp_contact_tags = [
+                    single_tag['tag']
+                    for single_tag in ac_response['contactTags']
+                    if single_tag['contact'] == single_contact['id']
+                ]
+                tmp_contact_custom_fields = [
+                    {'field': single_custom_field['field'], 'value': single_custom_field['value']}
+                    for single_custom_field in ac_response['fieldValues']
+                    if single_custom_field['contact'] == single_contact['id']
+                ]
+
+                contact_list.append({
                     'id': int(single_contact['id']),
                     'first_name': single_contact['firstName'],
                     'last_name': single_contact['lastName'],
-                    'create_date': single_contact['cdate'],
-                    'update_date': single_contact['udate']
-                }
-                for single_contact in ac_response['contacts']
-            ]
-            contact_list.extend(tmp_list)
+                    'create_date': single_contact['created_utc_timestamp'],
+                    'update_date': single_contact['updated_utc_timestamp'],
+                    'tags': tmp_contact_tags,
+                    'custom_fields': tmp_contact_custom_fields
+                })
         else:
             break
         
@@ -99,114 +111,142 @@ def extract_active_campaign_custom_fields() -> dict:
 
     return cf_utm_dict
 
-@task(
-    name='enrich_contact',
-    retries=2,
-    retry_delay_seconds=10,
-    log_prints=True
-)
-def enrich_contact(ac_contacts: list[dict], utm_fields: dict) -> dict:
-    ac_token = Secret.load("active-campaign-token")
-    enriched_contacts = []
+def enrich_lead_contacts(
+    ac_contacts: list[dict],
+    ac_custom_fields: dict
+) -> list[dict]:
+    yesterday = runtime.flow_run.scheduled_start_time.subtract(days=1)
+    enriched_lead_contact = []
 
-    for contact_info in ac_contacts:
-        contact_tags_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts/{contact_info["id"]}/contactTags'
-        contact_custom_fields_url = f'{ACTIVE_CAMPAIGN_BASE_URL}/api/3/contacts/{contact_info["id"]}?include=fieldValues'
+    for single_contact in ac_contacts:
+        tmp_contact = single_contact
 
-        # Defining base fields (SQL constraints)
-        contact_info['source'] = None
-        contact_info['source_campaign'] = None
-        contact_info['source_adset'] = None
-        contact_info['source_ads'] = None
+        if tmp_contact['create_date'].split(' ')[0] != yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            continue
 
-        # Getting Contact's tags
-        print(f'Retrieving the tags for customer - {contact_info["id"]}')
-        ac_response = requests.get(
-            url=contact_tags_url,
-            headers={
-                'Accept': 'application/json',
-                'Api-Token': ac_token.get()
-            }
-        )
-        if ac_response.status_code != 200:
-            raise Exception(f'Error while performing Call to AC - Contacts Tags: {ac_response.status_code}')
-        ac_contact_tags = json.loads(ac_response.text)
+        tmp_contact['source'] = None
+        tmp_contact['source_campaign'] = None
+        tmp_contact['source_adset'] = None
+        tmp_contact['source_ads'] = None
 
-        if len(ac_contact_tags['contactTags']) > 0:
-            # Checking for tags to get source
-            tags_list_ids = [single_tag['tag'] for single_tag in ac_contact_tags['contactTags']]
-            
+        if len(single_contact['tags']) > 0:
             # Is contact coming from Google?
-            if "6" in tags_list_ids:
-                contact_info['source'] = 'google'
-                return contact_info
+            if "6" in single_contact['tags']:
+                tmp_contact['source'] = 'google'
             # Is contact coming from Google?
-            elif "5" in tags_list_ids:
-                contact_info['source'] = 'youtube'
-                return contact_info
+            elif "5" in single_contact['tags']:
+                tmp_contact['source'] = 'youtube'
+
+        if tmp_contact['source'] is None:
+            if len(single_contact['custom_fields']) > 0:
+                contact_custom_fields = {
+                    ac_custom_fields[single_custom_field['field']]: single_custom_field['value']
+                    for single_custom_field in single_contact['custom_fields']
+                    if ac_custom_fields.get(single_custom_field['field'])
+                }
+
+                # Set source
+                if contact_custom_fields.get('UTM_SOURCE') in ['facebook', 'fb']:
+                    tmp_contact['source'] = 'facebook'
+                
+                if contact_custom_fields.get('UTM_CAMPAIGN'):
+                    tmp_contact['source_campaign'] = contact_custom_fields['UTM_CAMPAIGN']
+
+                if contact_custom_fields.get('UTM_CONTENT'):
+                    tmp_contact['source_adset'] = contact_custom_fields['UTM_CONTENT']
+
+                if contact_custom_fields.get('UTM_TERM'):
+                    tmp_contact['source_ads'] = contact_custom_fields['UTM_TERM']
+        
+        enriched_lead_contact.append(tmp_contact)
     
-        # Get Contact's custom fields (focus on UTM)
-        print(f'Retrieving custom fields for contact - {contact_info["id"]}')
-        ac_response = requests.get(
-            url=contact_custom_fields_url,
-            headers={
-                'Accept': 'application/json',
-                'Api-Token': ac_token.get()
+    return enriched_lead_contact
+
+def enrich_old_contacts(
+    ac_contacts: list[dict],
+    ac_custom_fields: dict
+) -> list[dict]:
+    yesterday = runtime.flow_run.scheduled_start_time.subtract(days=1)
+    enriched_old_contact = []
+
+    for single_contact in ac_contacts:
+        tmp_contact = single_contact
+
+        tmp_contact['source'] = None
+        tmp_contact['source_campaign'] = None
+        tmp_contact['source_adset'] = None
+        tmp_contact['source_ads'] = None
+
+        if len(tmp_contact['custom_fields']) > 0:
+            contact_custom_fields = {
+                ac_custom_fields[single_custom_field['field']]: single_custom_field['value']
+                for single_custom_field in single_contact['custom_fields']
+                if ac_custom_fields.get(single_custom_field['field'])
             }
-        )
-        if ac_response.status_code != 200:
-            raise Exception(f'Error while performing Call to AC - Contacts Custom Fields: {ac_response.status_code}')
-        ac_contact_custom_fields = json.loads(ac_response.text)
 
-        if len(ac_contact_custom_fields['fieldValues']) > 0:
-            contact_custom_fields_utm = {
-                utm_fields[single_custom_field['field']]: single_custom_field['value']
-                for single_custom_field in ac_contact_custom_fields['fieldValues']
-                if utm_fields.get(single_custom_field['field'])
-            }
+            if contact_custom_fields.get('DATA_NUOVA_RICHIESTA_GOOGLE') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+                tmp_contact['source'] = 'google'
+                tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_1') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+                tmp_contact['source'] = 'facebook'
+                tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_2') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+                tmp_contact['source'] = 'facebook'
+                tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_3') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+                tmp_contact['source'] = 'facebook'
+                tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_4') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+                tmp_contact['source'] = 'facebook'
+                tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_YOUTUBE') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+                tmp_contact['source'] = 'youtube'
+                tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
 
-            # Set source
-            if contact_custom_fields_utm.get('UTM_SOURCE') in ['facebook', 'fb']:
-                contact_info['source'] = 'facebook'
-            
-            if contact_custom_fields_utm.get('UTM_CAMPAIGN'):
-                contact_info['source_campaign'] = contact_custom_fields_utm['UTM_CAMPAIGN']
+            if tmp_contact['source'] is None:
+                continue
 
-            if contact_custom_fields_utm.get('UTM_CONTENT'):
-                contact_info['source_adset'] = contact_custom_fields_utm['UTM_CONTENT']
+            # If source fb, then take UTM
+            if contact_custom_fields.get('UTM_CAMPAIGN'):
+                tmp_contact['source_campaign'] = contact_custom_fields['UTM_CAMPAIGN']
 
-            if contact_custom_fields_utm.get('UTM_TERM'):
-                contact_info['source_ads'] = contact_custom_fields_utm['UTM_TERM']
+            if contact_custom_fields.get('UTM_CONTENT'):
+                tmp_contact['source_adset'] = contact_custom_fields['UTM_CONTENT']
+
+            if contact_custom_fields.get('UTM_TERM'):
+                tmp_contact['source_ads'] = contact_custom_fields['UTM_TERM']
+        else:
+            continue
+        
+        enriched_old_contact.append(tmp_contact)
     
-        enriched_contacts.append(contact_info)
+    return enriched_old_contact
+
+# @task(
+#     name='write_into_staging_db_area',
+#     retries=2,
+#     retry_delay_seconds=10,
+#     log_prints=True
+# )
+# def write_into_staging_db_areaa(ac_contacts_list: list[dict]) -> None:
+#     if len(ac_contacts_list) == 0:
+#         # No data to write, skip
+#         return
+
+#     # Establish a connection to the DB
+#     print('Establish a connection to the DB')
+#     database_block = DatabaseCredentials.load('miapensione-db')
+#     engine = database_block.get_engine()
+
+#     print('Inserting the records...')
+#     with engine.connect() as conn:
+#         with conn.begin():
+#             conn.execute(
+#                 text(AC_INSERT_QUERY),
+#                 ac_contacts_list
+#             )
     
-    return enriched_contacts
-
-@task(
-    name='write_into_staging_db_area',
-    retries=2,
-    retry_delay_seconds=10,
-    log_prints=True
-)
-def write_into_staging_db_areaa(ac_contacts_list: list[dict]) -> None:
-    if len(ac_contacts_list) == 0:
-        # No data to write, skip
-        return
-
-    # Establish a connection to the DB
-    print('Establish a connection to the DB')
-    database_block = DatabaseCredentials.load('miapensione-db')
-    engine = database_block.get_engine()
-
-    print('Inserting the records...')
-    with engine.connect() as conn:
-        with conn.begin():
-            conn.execute(
-                text(AC_INSERT_QUERY),
-                ac_contacts_list
-            )
-    
-    print('Successfully written data into DB')
+#     print('Successfully written data into DB')
 
 
 @flow(
@@ -226,10 +266,4 @@ def get_active_campaign_contacts():
         ac_contacts=contacts_list,
         utm_fields=custom_fields,
         wait_for=custom_fields
-    )
-
-    # Write AC data into DB
-    write_to_db = write_into_staging_db_areaa(
-        ac_contacts_list=enriched_contacts_list,
-        wait_for=enriched_contacts_list
     )
