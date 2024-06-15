@@ -63,9 +63,6 @@ def extract_active_campaign_contacts() -> list[dict]:
         ac_response = json.loads(ac_response.text)
 
         if len(ac_response['contacts']) > 0:
-            if offset == 1000:
-                break
-
             for single_contact in ac_response['contacts']:
                 tmp_contact_tags = [
                     single_tag['tag']
@@ -138,12 +135,8 @@ def enrich_lead_contacts(
     yesterday = runtime.flow_run.scheduled_start_time.subtract(days=1)
     enriched_lead_contact = []
 
-    print(f'yesterday: {yesterday.strftime("%Y-%m-%dT%H:%M:%S").split("T")[0]}')
-
     for single_contact in ac_contacts:
         tmp_contact = single_contact
-
-        print(f'contact date: {tmp_contact["create_date"].split(" ")[0]}')
 
         if tmp_contact['create_date'].split(' ')[0] != yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
             continue
