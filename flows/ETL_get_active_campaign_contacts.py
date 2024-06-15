@@ -51,7 +51,7 @@ def extract_active_campaign_contacts() -> list[dict]:
     while True:
         print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{contacts_url}?limit=100&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}&include=fieldValues,contactTags',
+            url=f'{contacts_url}?limit=100&offset={offset}&filters[updated_before]={current_date.strftime("%Y-%m-%d")}T00:00:00&filters[updated_after]={current_date_2days_sub.strftime("%Y-%m-%d")}23:59:59&include=fieldValues,contactTags',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
