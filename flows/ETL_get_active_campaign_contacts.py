@@ -125,6 +125,12 @@ def extract_active_campaign_custom_fields() -> dict:
 
     return cf_utm_dict
 
+@task(
+    name='enrich_lead_contacts',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
 def enrich_lead_contacts(
     ac_contacts: list[dict],
     ac_custom_fields: dict
@@ -135,7 +141,7 @@ def enrich_lead_contacts(
     for single_contact in ac_contacts:
         tmp_contact = single_contact
 
-        if tmp_contact['create_date'].split(' ')[0] != yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+        if tmp_contact['create_date'].split(' ')[0] != yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
             continue
 
         tmp_contact['source'] = None
@@ -176,6 +182,12 @@ def enrich_lead_contacts(
     
     return enriched_lead_contact
 
+@task(
+    name='enrich_old_contacts',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
 def enrich_old_contacts(
     ac_contacts: list[dict],
     ac_custom_fields: dict
@@ -198,22 +210,22 @@ def enrich_old_contacts(
                 if ac_custom_fields.get(single_custom_field['field'])
             }
 
-            if contact_custom_fields.get('DATA_NUOVA_RICHIESTA_GOOGLE') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            if contact_custom_fields.get('DATA_NUOVA_RICHIESTA_GOOGLE') == yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
                 tmp_contact['source'] = 'google'
                 tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
-            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_1') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_1') == yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
                 tmp_contact['source'] = 'facebook'
                 tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
-            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_2') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_2') == yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
                 tmp_contact['source'] = 'facebook'
                 tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
-            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_3') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_3') == yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
                 tmp_contact['source'] = 'facebook'
                 tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
-            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_4') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_LANDING_4') == yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
                 tmp_contact['source'] = 'facebook'
                 tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
-            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_YOUTUBE') == yesterday.strftime('%Y-%m-%d %H:%M:%S').split(' ')[0]:
+            elif contact_custom_fields.get('DATA_NUOVA_RICHIESTA_YOUTUBE') == yesterday.strftime('%Y-%m-%dT%H:%M:%S').split('T')[0]:
                 tmp_contact['source'] = 'youtube'
                 tmp_contact['update_date'] = yesterday.strftime('%Y-%m-%d %H:%M:%S')
 
