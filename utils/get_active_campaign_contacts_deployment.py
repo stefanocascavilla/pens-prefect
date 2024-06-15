@@ -8,5 +8,5 @@ if __name__ == "__main__":
     ).deploy(
         name="get_active_campaign_contacts_deployment",
         work_pool_name="default-managed-pool",
-        cron="0 1 * * *"
+        cron="0 0 * * *"
     )

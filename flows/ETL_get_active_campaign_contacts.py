@@ -263,7 +263,7 @@ def write_to_bigquery(
         return
 
     gcp_credentials = GcpCredentials.load("miapensione-gcp")
-    client = bigquery.Client(credentials=gcp_credentials)
+    client = bigquery.Client(credentials=gcp_credentials.get_credentials_from_service_account())
 
     # Inserting into stg table
     table_ref = client.dataset(GCP_DATASET).table(GCP_STG_TABLE)
