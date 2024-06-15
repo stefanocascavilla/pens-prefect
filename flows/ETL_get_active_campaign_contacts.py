@@ -1,22 +1,34 @@
 import requests
 import json
 
-from datetime import datetime
 from time import sleep
 
 from prefect import flow, task, runtime
 from prefect.blocks.system import Secret
+from prefect_gcp import GcpCredentials
 
-from prefect_sqlalchemy import DatabaseCredentials
-from sqlalchemy import text
+from google.cloud import bigquery
+from google.oauth2.service_account import Credentials
 
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
+GCP_DATASET = 'staging'
+GCP_STG_TABLE = 'stg_ac_contacts_tmp'
+GCP_TARGET_TABLE = 'stg_ac_contacts'
 
-AC_INSERT_QUERY = """
-    INSERT INTO staging.stg_ac_contacts (id, first_name, last_name, create_date, update_date, source, source_campaign, source_adset, source_ads)
-    VALUES (:id, :first_name, :last_name, :create_date, :update_date, :source, :source_campaign, :source_adset, :source_ads)
-    ON CONFLICT DO NOTHING
+MERGE_BIGQUERY_TABLES = f"""
+    MERGE `{GCP_DATASET}.{GCP_TARGET_TABLE}` T
+    USING `{GCP_DATASET}.{GCP_STG_TABLE}` S
+    ON T.id = S.id
+    WHEN MATCHED THEN UPDATE SET
+        T.update_date = S.update_date,
+        T.source = S.source,
+        T.source_campaign = S.source_campaign,
+        T.source_adset = S.source_adset,
+        T.source_ads = S.source_ads
+    WHEN NOT MATCHED THEN
+        INSERT (id, first_name, last_name, create_date, update_date, source, source_campaign, source_adset, source_ads)
+        VALUES (S.id, S.first_name, S.last_name, S.create_date, S.update_date, S.source, S.source_campaign, S.source_adset, S.source_ads)
 """
 
 
@@ -51,6 +63,9 @@ def extract_active_campaign_contacts() -> list[dict]:
         ac_response = json.loads(ac_response.text)
 
         if len(ac_response['contacts']) > 0:
+            if offset == 1000:
+                break
+
             for single_contact in ac_response['contacts']:
                 tmp_contact_tags = [
                     single_tag['tag']
@@ -76,7 +91,6 @@ def extract_active_campaign_contacts() -> list[dict]:
             break
         
         offset += 100
-        sleep(0.5)
     
     print(f'Successfully extracted {len(contact_list)} Contacts from AC')
     return contact_list
@@ -106,7 +120,7 @@ def extract_active_campaign_custom_fields() -> dict:
 
     cf_utm_dict = {
         single_custom_field['id']: single_custom_field['perstag']
-        for single_custom_field in ac_custom_fields['fields'] if 'utm' in single_custom_field['title']
+        for single_custom_field in ac_custom_fields['fields'] if 'Data nuova richiesta' in single_custom_field['title'] or 'utm' in single_custom_field['title']
     }
 
     return cf_utm_dict
@@ -222,32 +236,39 @@ def enrich_old_contacts(
     
     return enriched_old_contact
 
-# @task(
-#     name='write_into_staging_db_area',
-#     retries=2,
-#     retry_delay_seconds=10,
-#     log_prints=True
-# )
-# def write_into_staging_db_areaa(ac_contacts_list: list[dict]) -> None:
-#     if len(ac_contacts_list) == 0:
-#         # No data to write, skip
-#         return
+@task(
+    name='write_to_bigquery',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
+def write_to_bigquery(
+    lead_contacts: list[dict],
+    old_contacts: list[dict]
+) -> None:
+    full_contacts = lead_contacts + old_contacts
 
-#     # Establish a connection to the DB
-#     print('Establish a connection to the DB')
-#     database_block = DatabaseCredentials.load('miapensione-db')
-#     engine = database_block.get_engine()
+    if len(full_contacts) == 0:
+        # No data to write, skip
+        print('No data to write, skip')
+        return
 
-#     print('Inserting the records...')
-#     with engine.connect() as conn:
-#         with conn.begin():
-#             conn.execute(
-#                 text(AC_INSERT_QUERY),
-#                 ac_contacts_list
-#             )
-    
-#     print('Successfully written data into DB')
+    gcp_credentials = GcpCredentials.load("miapensione-gcp")
+    client = bigquery.Client(credentials=gcp_credentials)
 
+    # Inserting into stg table
+    table_ref = client.dataset(GCP_DATASET).table(GCP_STG_TABLE)
+    errors = client.insert_rows_json(table_ref, full_contacts, row_ids=[None] * len(full_contacts))
+    if errors:
+        for error in errors:
+            print(f"Error: {error}")
+    else:
+        print("Rows loaded to staging table successfully.")
+
+    # Inserting into target table
+    job = client.query(MERGE_BIGQUERY_TABLES)
+    job.result()  # Wait for the job to complete
+    print("Upsert from staging to target table completed.")
 
 @flow(
     name='get_active_campaign_contacts',
@@ -261,9 +282,18 @@ def get_active_campaign_contacts():
     # Retrieve Custom Fields information
     custom_fields = extract_active_campaign_custom_fields()
 
-    # Enrich Contacts info
-    enriched_contacts_list = enrich_contact(
+    # Get leads
+    lead_contacts = enrich_lead_contacts(
         ac_contacts=contacts_list,
-        utm_fields=custom_fields,
-        wait_for=custom_fields
+        ac_custom_fields=custom_fields
+    )
+    # Get re-activations
+    old_contacts = enrich_old_contacts(
+        ac_contacts=contacts_list,
+        ac_custom_fields=custom_fields
+    )
+
+    write_bigquery = write_to_bigquery(
+        lead_contacts=lead_contacts,
+        old_contacts=old_contacts
     )
