@@ -1,24 +1,21 @@
 import requests
 import json
 
-from time import sleep
-
 from prefect import flow, task, runtime
 from prefect.blocks.system import Secret
 from prefect_gcp import GcpCredentials
 
 from google.cloud import bigquery
-from google.oauth2.service_account import Credentials
 
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
+
 GCP_DATASET = 'staging'
 GCP_STG_TABLE = 'stg_ac_contacts_tmp'
-GCP_TARGET_TABLE = 'stg_ac_contacts'
 
 MERGE_BIGQUERY_TABLES = f"""
-    MERGE `{GCP_DATASET}.{GCP_TARGET_TABLE}` T
-    USING `{GCP_DATASET}.{GCP_STG_TABLE}` S
+    MERGE `staging.stg_ac_contacts` T
+    USING `staging.stg_ac_contacts_tmp` S
     ON T.id = S.id
     WHEN MATCHED THEN UPDATE SET
         T.update_date = S.update_date,
@@ -30,6 +27,7 @@ MERGE_BIGQUERY_TABLES = f"""
         INSERT (id, first_name, last_name, create_date, update_date, source, source_campaign, source_adset, source_ads)
         VALUES (S.id, S.first_name, S.last_name, S.create_date, S.update_date, S.source, S.source_campaign, S.source_adset, S.source_ads)
 """
+TRUNCATE_STG_TABLE = 'TRUNCATE TABLE staging.stg_ac_contacts_tmp'
 
 
 @task(
@@ -279,6 +277,21 @@ def write_to_bigquery(
     job.result()  # Wait for the job to complete
     print("Upsert from staging to target table completed.")
 
+@task(
+    name='truncate_stg_tables',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
+def truncate_stg_tables():
+    gcp_credentials = GcpCredentials.load("miapensione-gcp")
+    client = bigquery.Client(credentials=gcp_credentials.get_credentials_from_service_account())
+
+    job = client.query(TRUNCATE_STG_TABLE)
+    job.result()  # Wait for the job to complete
+    print("Successfully truncated stg table")
+
+
 @flow(
     name='get_active_campaign_contacts',
     log_prints=True,
@@ -297,13 +310,14 @@ def get_active_campaign_contacts():
         ac_custom_fields=custom_fields
     )
     # Get re-activations
-    old_contacts = []
-    # enrich_old_contacts(
-    #     ac_contacts=contacts_list,
-    #     ac_custom_fields=custom_fields
-    # )
+    old_contacts = enrich_old_contacts(
+        ac_contacts=contacts_list,
+        ac_custom_fields=custom_fields
+    )
 
     write_bigquery = write_to_bigquery(
         lead_contacts=lead_contacts,
         old_contacts=old_contacts
     )
+
+    truncate = truncate_stg_tables()

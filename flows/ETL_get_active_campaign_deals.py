@@ -1,28 +1,38 @@
 import requests
 import json
 
-from time import sleep
 from datetime import datetime, timezone
 
 from prefect import flow, task, runtime
 from prefect.blocks.system import Secret
+from prefect_gcp import GcpCredentials
 
-from prefect_sqlalchemy import DatabaseCredentials
-from sqlalchemy import text
+from google.cloud import bigquery
 
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
 
-AC_INSERT_APPOINTMENT_DEALS_QUERY = """
-    INSERT INTO staging.stg_ac_deals_appointment (id, contact, ts)
-    VALUES (:id, :contact, :ts)
-    ON CONFLICT DO NOTHING
+MERGE_BIGQUERY_APPOINTMENTS = f"""
+    MERGE `staging.stg_ac_deals_appointment` T
+    USING `staging.stg_ac_deals_appointment_tmp` S
+    ON T.id = S.id
+    WHEN MATCHED THEN DO NOTHING
+    WHEN NOT MATCHED THEN
+        INSERT (id, contact, ts)
+        VALUES (S.id, S.contact, S.ts)
 """
-AC_INSERT_CLOSED_DEALS_QUERY = """
-    INSERT INTO staging.stg_ac_deals_closed (id, contact, value, ts)
-    VALUES (:id, :contact, :value, :ts)
-    ON CONFLICT DO NOTHING
+MERGE_BIGQUERY_CLOSED = f"""
+    MERGE `staging.stg_ac_deals_closed` T
+    USING `staging.stg_ac_deals_closed_tmp` S
+    ON T.id = S.id
+    WHEN MATCHED THEN DO UPDATE SET
+        T.value = S.value
+    WHEN NOT MATCHED THEN
+        INSERT (id, contact, value, ts)
+        VALUES (S.id, S.contact, S.value, S.ts)
 """
+TRUNCATE_STG_TABLE_APPOINTMENTS = 'TRUNCATE TABLE staging.stg_ac_deals_appointment_tmp'
+TRUNCATE_STG_TABLE_CLOSED = 'TRUNCATE TABLE staging.stg_ac_deals_closed_tmp'
 
 
 @task(
@@ -68,7 +78,6 @@ def extract_active_campaign_deals_appointment() -> list[dict]:
             break
 
         offset += 100
-        sleep(0.5)
 
     print(f'Successfully extracted {len(deal_list)} Appointment Deals from AC')
     return deal_list
@@ -118,7 +127,6 @@ def extract_active_campaign_deals_closed() -> list[dict]:
             break
 
         offset += 100
-        sleep(0.5)
 
     print(f'Successfully extracted {len(deal_list)} Closed Deals from AC')
     return deal_list
@@ -129,28 +137,50 @@ def extract_active_campaign_deals_closed() -> list[dict]:
     retry_delay_seconds=10,
     log_prints=True
 )
-def write_into_staging_db_area_deals(
+def write_deals_into_bigquery(
     ac_deals_list: list[dict],
-    query: str
+    gcp_dataset: str,
+    gcp_stg_table: str,
+    merge_query: str
 ) -> None:
     if len(ac_deals_list) == 0:
         # No data to write, skip
+        print('No data to write, skip')
         return
 
-    # Establish a connection to the DB
-    print('Establish a connection to the DB')
-    database_block = DatabaseCredentials.load('miapensione-db')
-    engine = database_block.get_engine()
+    gcp_credentials = GcpCredentials.load("miapensione-gcp")
+    client = bigquery.Client(credentials=gcp_credentials.get_credentials_from_service_account())
 
-    print('Inserting the records deals...')
-    with engine.connect() as conn:
-        with conn.begin():
-            conn.execute(
-                text(query),
-                ac_deals_list
-            )
-    
-    print('Successfully written data into DB')
+    # Inserting into stg table
+    table_ref = client.dataset(gcp_dataset).table(gcp_stg_table)
+    errors = client.insert_rows_json(table_ref, ac_deals_list, row_ids=[None] * len(ac_deals_list))
+    if errors:
+        for error in errors:
+            print(f"Error: {error}")
+    else:
+        print("Rows loaded to staging table successfully.")
+
+    # Inserting into target table
+    job = client.query(merge_query)
+    job.result()  # Wait for the job to complete
+    print("Upsert from staging to target table completed.")
+
+@task(
+    name='truncate_stg_tables',
+    retries=2,
+    retry_delay_seconds=10,
+    log_prints=True
+)
+def truncate_stg_tables():
+    gcp_credentials = GcpCredentials.load("miapensione-gcp")
+    client = bigquery.Client(credentials=gcp_credentials.get_credentials_from_service_account())
+
+    job = client.query(TRUNCATE_STG_TABLE_APPOINTMENTS)
+    job.result()  # Wait for the job to complete
+    job = client.query(TRUNCATE_STG_TABLE_CLOSED)
+    job.result()  # Wait for the job to complete
+
+    print("Successfully truncated stg table")
 
 
 @flow(
@@ -161,14 +191,22 @@ def write_into_staging_db_area_deals(
 def get_active_campaign_deals():
     # Retrieve raw Appointment Deals from AC and write to DB
     appointment_deals = extract_active_campaign_deals_appointment()
-    write_appointment_deals = write_into_staging_db_area_deals(
+    write_appointment_deals = write_deals_into_bigquery(
         ac_deals_list=appointment_deals,
-        query=AC_INSERT_APPOINTMENT_DEALS_QUERY
+        gcp_dataset='staging'
+        gcp_stg_table='stg_ac_deals_appointment_tmp',
+        merge_query=MERGE_BIGQUERY_APPOINTMENTS
     )
 
     # Retrieve raw Appointment Closed from AC
     closed_deals = extract_active_campaign_deals_closed()
-    write_closed_deals = write_into_staging_db_area_deals(
+    write_closed_deals = write_deals_into_bigquery(
         ac_deals_list=closed_deals,
-        query=AC_INSERT_CLOSED_DEALS_QUERY
+        gcp_dataset='staging'
+        gcp_stg_table='stg_ac_deals_closed_tmp',
+        merge_query=MERGE_BIGQUERY_CLOSED
+    )
+
+    truncate = truncate_stg_tables(
+        wait_for=[write_appointment_deals, write_closed_deals]
     )
