@@ -193,7 +193,7 @@ def get_active_campaign_deals():
     appointment_deals = extract_active_campaign_deals_appointment()
     write_appointment_deals = write_deals_into_bigquery(
         ac_deals_list=appointment_deals,
-        gcp_dataset='staging'
+        gcp_dataset='staging',
         gcp_stg_table='stg_ac_deals_appointment_tmp',
         merge_query=MERGE_BIGQUERY_APPOINTMENTS
     )
@@ -202,7 +202,7 @@ def get_active_campaign_deals():
     closed_deals = extract_active_campaign_deals_closed()
     write_closed_deals = write_deals_into_bigquery(
         ac_deals_list=closed_deals,
-        gcp_dataset='staging'
+        gcp_dataset='staging',
         gcp_stg_table='stg_ac_deals_closed_tmp',
         merge_query=MERGE_BIGQUERY_CLOSED
     )
