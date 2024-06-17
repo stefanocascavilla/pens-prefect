@@ -69,7 +69,7 @@ def extract_active_campaign_deals_appointment() -> list[dict]:
                 {
                     'id': int(single_deal['id']),
                     'contact': int(single_deal['contact']),
-                    'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc)
+                    'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                 }
                 for single_deal in ac_response['deals']
             ]
@@ -117,7 +117,7 @@ def extract_active_campaign_deals_closed() -> list[dict]:
                     'id': int(single_deal['id']),
                     'contact': int(single_deal['contact']),
                     'value': float(single_deal['value']) / 100,
-                    'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc)
+                    'ts': datetime.fromisoformat(single_deal['mdate']).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                 }
                 for single_deal in ac_response['deals']
                 if datetime.strptime(single_deal['mdate'], '%Y-%m-%dT%H:%M:%S%z').strftime('%Y-%m-%d') == runtime.flow_run.scheduled_start_time.strftime('%Y-%m-%d')
