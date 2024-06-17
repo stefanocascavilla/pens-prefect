@@ -54,7 +54,7 @@ def extract_active_campaign_deals_appointment() -> list[dict]:
     while True:
         print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{deals_url}?limit=100&offset={offset}&filters[updated_before]={current_date_1day_add.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_1day_sub.strftime("%Y-%m-%d")}&filters[stage]=105&filters[status]=0',
+            url=f'{deals_url}?limit=100&offset={offset}&filters[stage]=105&filters[status]=0',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
@@ -101,7 +101,7 @@ def extract_active_campaign_deals_closed() -> list[dict]:
     while True:
         print(f'Iteration: {offset / 100}')
         ac_response = requests.get(
-            url=f'{deals_url}?limit=100&offset={offset}&filters[updated_before]={current_date_1day_add.strftime("%Y-%m-%d")}&filters[updated_after]={current_date_1day_sub.strftime("%Y-%m-%d")}&filters[stage]=99&filters[status]=1',
+            url=f'{deals_url}?limit=100&offset={offset}&filters[stage]=99&filters[status]=1',
             headers={
                 'Accept': 'application/json',
                 'Api-Token': ac_token.get()
