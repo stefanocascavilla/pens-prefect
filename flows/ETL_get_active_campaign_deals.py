@@ -13,7 +13,7 @@ from google.cloud import bigquery
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
 
 MERGE_BIGQUERY_APPOINTMENTS = f"""
-    MERGE `staging.stg_ac_deals_appointment` T
+    MERGE `mart_active_campaign.ac_deals_appointment` T
     USING `staging.stg_ac_deals_appointment_tmp` S
     ON T.id = S.id
     WHEN MATCHED THEN DO NOTHING
@@ -22,7 +22,7 @@ MERGE_BIGQUERY_APPOINTMENTS = f"""
         VALUES (S.id, S.contact, S.ts)
 """
 MERGE_BIGQUERY_CLOSED = f"""
-    MERGE `staging.stg_ac_deals_closed` T
+    MERGE `mart_active_campaign.ac_deals_closed` T
     USING `staging.stg_ac_deals_closed_tmp` S
     ON T.id = S.id
     WHEN MATCHED THEN DO UPDATE SET

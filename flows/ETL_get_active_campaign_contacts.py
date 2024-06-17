@@ -10,11 +10,8 @@ from google.cloud import bigquery
 
 ACTIVE_CAMPAIGN_BASE_URL = 'https://miapensione.api-us1.com'
 
-GCP_DATASET = 'staging'
-GCP_STG_TABLE = 'stg_ac_contacts_tmp'
-
 MERGE_BIGQUERY_TABLES = f"""
-    MERGE `staging.stg_ac_contacts` T
+    MERGE `mart_active_campaign.ac_contacts` T
     USING `staging.stg_ac_contacts_tmp` S
     ON T.id = S.id
     WHEN MATCHED THEN UPDATE SET
@@ -264,7 +261,7 @@ def write_to_bigquery(
     client = bigquery.Client(credentials=gcp_credentials.get_credentials_from_service_account())
 
     # Inserting into stg table
-    table_ref = client.dataset(GCP_DATASET).table(GCP_STG_TABLE)
+    table_ref = client.dataset('staging').table('stg_ac_contacts')
     errors = client.insert_rows_json(table_ref, full_contacts, row_ids=[None] * len(full_contacts))
     if errors:
         for error in errors:
@@ -320,4 +317,6 @@ def get_active_campaign_contacts():
         old_contacts=old_contacts
     )
 
-    truncate = truncate_stg_tables()
+    truncate = truncate_stg_tables(
+        wait_for=write_bigquery
+    )
